@@ -60,3 +60,31 @@ class AdminNoteResponse(AdminNoteCreate):
     is_archived: bool
     created_at: datetime
     updated_at: datetime
+from pydantic import BaseModel
+from datetime import datetime
+
+
+class ChildrenMonthlyBase(BaseModel):
+    facility: str
+    year: int
+    month: int
+    age: str
+    certification: str
+    children_count: int
+
+
+class ChildrenMonthlyCreate(ChildrenMonthlyBase):
+    pass
+
+
+class ChildrenMonthlyUpdate(ChildrenMonthlyBase):
+    pass
+
+
+class ChildrenMonthlyResponse(ChildrenMonthlyBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

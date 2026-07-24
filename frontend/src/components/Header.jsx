@@ -1,8 +1,12 @@
 const titles = {
-  home: ["HOME", "わかば学園ポータル"],
-  staff: ["STAFF", "職員管理"],
-  "staff-new": ["STAFF", "職員登録"],
-  "staff-detail": ["STAFF", "職員詳細"],
+  home: ["", "わかば学園ポータル"],
+  staff: ["", "職員管理"],
+  "staff-new": ["", "職員登録"],
+  "staff-detail": ["", "職員詳細"],
+  "staff-edit": ["", "職員情報を編集"],
+  facility: ["", "園管理"],
+  "facility-detail": ["", "園詳細"],
+  "facility-edit": ["", "園情報を編集"],
 };
 
 export default function Header({ currentPage }) {
@@ -11,7 +15,7 @@ export default function Header({ currentPage }) {
   return (
     <header className="header">
       <div>
-        <p className="page-label">{label}</p>
+        {label && <p className="page-label">{label}</p>}
         <h2>{title}</h2>
       </div>
 

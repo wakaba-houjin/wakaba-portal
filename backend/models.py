@@ -64,3 +64,29 @@ class AdminNote(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     staff: Mapped[Staff] = relationship(back_populates="admin_notes")
+from sqlalchemy import Column, Integer, String, DateTime
+from database import Base
+from datetime import datetime
+
+
+class ChildrenMonthly(Base):
+    __tablename__ = "children_monthly"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    facility = Column(String(100), nullable=False)
+
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=False)
+
+    age = Column(String(20), nullable=False)
+    certification = Column(String(20), nullable=False)
+
+    children_count = Column(Integer, default=0)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )

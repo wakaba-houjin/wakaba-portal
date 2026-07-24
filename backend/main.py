@@ -4,6 +4,13 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
+from models import ChildrenMonthly
+from schemas import (
+    ChildrenMonthlyCreate,
+    ChildrenMonthlyUpdate,
+    ChildrenMonthlyResponse,
+)
+
 
 from database import Base, engine, get_db
 from models import AdminNote, Staff, Task
@@ -34,10 +41,19 @@ with engine.begin() as connection:
     ]:
         connection.execute(text(statement))
 
-app = FastAPI(title="わかば学園ポータル API", version="1.0.0")
+app = FastAPI(
+    title="わかば学園ポータル API",
+    version="1.0.0",
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -244,3 +260,81 @@ def dashboard(db: Session = Depends(get_db)):
         "leave_count": sum(1 for item in active if item.status in ["産前産後休業", "育児休業"]),
         "retired_this_year": sum(1 for item in staff if item.retirement_date and item.retirement_date.year == today.year),
     }
+@app.put("/staff/{staff_id}", response_model=StaffResponse)
+def update_staff(
+    staff_id: int,
+    staff_data: StaffCreate,
+    db: Session = Depends(get_db),
+):
+    staff = db.get(Staff, staff_id)
+
+    if not staff:
+        raise HTTPException(
+            status_code=404,
+            detail="職員が見つかりません。",
+        )
+
+    update_data = staff_data.model_dump()
+
+    for key, value in update_data.items():
+        setattr(staff, key, value)
+
+    staff.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(staff)
+
+    return to_staff_response(staff)
+
+@app.patch("/staff/{staff_id}/retire", response_model=StaffResponse)
+def retire_staff(
+    staff_id: int,
+    retirement_date: date,
+    db: Session = Depends(get_db),
+):
+    staff = db.get(Staff, staff_id)
+
+    if not staff:
+        raise HTTPException(
+            status_code=404,
+            detail="職員が見つかりません。",
+        )
+
+    staff.status = "退職"
+    staff.retirement_date = retirement_date
+    staff.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(staff)
+
+    return to_staff_response(staff)
+@app.patch("/staff/{staff_id}/retire", response_model=StaffResponse)
+def retire_staff(
+    staff_id: int,
+    retirement_date: date = Query(...),
+    db: Session = Depends(get_db),
+):
+    staff = db.get(Staff, staff_id)
+
+    if not staff:
+        raise HTTPException(
+            status_code=404,
+            detail="職員が見つかりません。",
+        )
+
+    staff.status = "退職"
+    staff.retirement_date = retirement_date
+    staff.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(staff)
+
+    return to_staff_response(staff)
+GET    /children
+GET    /children/{facility}/{year}/{month}
+
+POST   /children
+
+PUT    /children/{id}
+
+DELETE /children/{id}
