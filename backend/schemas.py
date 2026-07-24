@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class StaffCreate(BaseModel):
@@ -15,8 +15,16 @@ class StaffCreate(BaseModel):
     hire_date: date
     retirement_date: date | None = None
     weekly_hours: float = Field(gt=0, le=80)
-    daily_hours: float | None = Field(default=None, gt=0, le=24)
-    weekly_days: float | None = Field(default=None, gt=0, le=7)
+    daily_hours: float | None = Field(
+        default=None,
+        gt=0,
+        le=24,
+    )
+    weekly_days: float | None = Field(
+        default=None,
+        gt=0,
+        le=7,
+    )
     salary_type: str | None = None
     status: str = "在職"
     notes: str | None = None
@@ -24,6 +32,7 @@ class StaffCreate(BaseModel):
 
 class StaffResponse(StaffCreate):
     model_config = ConfigDict(from_attributes=True)
+
     id: int
     staff_number: str
     age: int | None = None
@@ -41,6 +50,7 @@ class TaskCreate(BaseModel):
 
 class TaskResponse(TaskCreate):
     model_config = ConfigDict(from_attributes=True)
+
     id: int
     status: str
     completed_at: datetime | None = None
@@ -55,36 +65,82 @@ class AdminNoteCreate(BaseModel):
 
 class AdminNoteResponse(AdminNoteCreate):
     model_config = ConfigDict(from_attributes=True)
+
     id: int
     staff_id: int
     is_archived: bool
     created_at: datetime
     updated_at: datetime
-from pydantic import BaseModel
-from datetime import datetime
+
+
+CHILD_AGES = [
+    "0歳",
+    "1歳",
+    "2歳",
+    "満3歳",
+    "3歳",
+    "4歳",
+    "5歳",
+]
+
+CERTIFICATIONS = [
+    "1号",
+    "2号",
+    "3号",
+]
 
 
 class ChildrenMonthlyBase(BaseModel):
-    facility: str
-    year: int
-    month: int
+    facility: str = Field(min_length=1, max_length=100)
+    year: int = Field(ge=2020, le=2100)
+    month: int = Field(ge=1, le=12)
     age: str
     certification: str
-    children_count: int
+    children_count: int = Field(ge=0, le=999)
+
+    @field_validator("age")
+    @classmethod
+    def validate_age(cls, value: str) -> str:
+        if value not in CHILD_AGES:
+            raise ValueError("年齢区分が正しくありません。")
+        return value
+
+    @field_validator("certification")
+    @classmethod
+    def validate_certification(cls, value: str) -> str:
+        if value not in CERTIFICATIONS:
+            raise ValueError("認定区分が正しくありません。")
+        return value
 
 
 class ChildrenMonthlyCreate(ChildrenMonthlyBase):
     pass
 
 
-class ChildrenMonthlyUpdate(ChildrenMonthlyBase):
-    pass
+class ChildrenMonthlyUpdate(BaseModel):
+    children_count: int = Field(ge=0, le=999)
 
 
 class ChildrenMonthlyResponse(ChildrenMonthlyBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+
+class ChildrenMonthlyBulkSave(BaseModel):
+    facility: str = Field(min_length=1, max_length=100)
+    year: int = Field(ge=2020, le=2100)
+    month: int = Field(ge=1, le=12)
+    entries: list[ChildrenMonthlyCreate]
+
+
+class ChildrenMonthlySummary(BaseModel):
+    facility: str
+    year: int
+    month: int
+    total: int
+    certification_totals: dict[str, int]
+    age_totals: dict[str, int]
+    entries: list[ChildrenMonthlyResponse]

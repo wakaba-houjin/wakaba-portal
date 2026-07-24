@@ -4,7 +4,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
-from models import ChildrenMonthly
+from models import AdminNote, ChildrenMonthly, Staff, Task
 from schemas import (
     ChildrenMonthlyCreate,
     ChildrenMonthlyUpdate,
@@ -17,6 +17,11 @@ from models import AdminNote, Staff, Task
 from schemas import (
     AdminNoteCreate,
     AdminNoteResponse,
+    ChildrenMonthlyBulkSave,
+    ChildrenMonthlyCreate,
+    ChildrenMonthlyResponse,
+    ChildrenMonthlySummary,
+    ChildrenMonthlyUpdate,
     StaffCreate,
     StaffResponse,
     TaskCreate,
@@ -289,28 +294,6 @@ def update_staff(
 @app.patch("/staff/{staff_id}/retire", response_model=StaffResponse)
 def retire_staff(
     staff_id: int,
-    retirement_date: date,
-    db: Session = Depends(get_db),
-):
-    staff = db.get(Staff, staff_id)
-
-    if not staff:
-        raise HTTPException(
-            status_code=404,
-            detail="職員が見つかりません。",
-        )
-
-    staff.status = "退職"
-    staff.retirement_date = retirement_date
-    staff.updated_at = datetime.utcnow()
-
-    db.commit()
-    db.refresh(staff)
-
-    return to_staff_response(staff)
-@app.patch("/staff/{staff_id}/retire", response_model=StaffResponse)
-def retire_staff(
-    staff_id: int,
     retirement_date: date = Query(...),
     db: Session = Depends(get_db),
 ):
@@ -330,11 +313,337 @@ def retire_staff(
     db.refresh(staff)
 
     return to_staff_response(staff)
-GET    /children
-GET    /children/{facility}/{year}/{month}
+CHILD_AGES = [
+    "0歳",
+    "1歳",
+    "2歳",
+    "満3歳",
+    "3歳",
+    "4歳",
+    "5歳",
+]
 
-POST   /children
+CERTIFICATIONS = [
+    "1号",
+    "2号",
+    "3号",
+]
 
-PUT    /children/{id}
 
-DELETE /children/{id}
+def validate_facility(facility: str) -> None:
+    if facility not in FACILITIES:
+        raise HTTPException(
+            status_code=400,
+            detail="指定された園は登録されていません。",
+        )
+
+
+def build_children_summary(
+    facility: str,
+    year: int,
+    month: int,
+    entries: list[ChildrenMonthly],
+) -> ChildrenMonthlySummary:
+    certification_totals = {
+        certification: 0
+        for certification in CERTIFICATIONS
+    }
+    age_totals = {
+        age: 0
+        for age in CHILD_AGES
+    }
+
+    for entry in entries:
+        certification_totals[entry.certification] += (
+            entry.children_count
+        )
+        age_totals[entry.age] += entry.children_count
+
+    return ChildrenMonthlySummary(
+        facility=facility,
+        year=year,
+        month=month,
+        total=sum(
+            entry.children_count
+            for entry in entries
+        ),
+        certification_totals=certification_totals,
+        age_totals=age_totals,
+        entries=entries,
+    )
+
+
+@app.get(
+    "/children",
+    response_model=list[ChildrenMonthlyResponse],
+)
+def get_children(
+    year: int = Query(..., ge=2020, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    facility: str | None = None,
+    db: Session = Depends(get_db),
+):
+    statement = (
+        select(ChildrenMonthly)
+        .where(
+            ChildrenMonthly.year == year,
+            ChildrenMonthly.month == month,
+        )
+        .order_by(
+            ChildrenMonthly.facility,
+            ChildrenMonthly.age,
+            ChildrenMonthly.certification,
+        )
+    )
+
+    if facility:
+        validate_facility(facility)
+        statement = statement.where(
+            ChildrenMonthly.facility == facility
+        )
+
+    return db.scalars(statement).all()
+
+
+@app.get(
+    "/children/{facility}/{year}/{month}",
+    response_model=ChildrenMonthlySummary,
+)
+def get_children_month(
+    facility: str,
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+):
+    validate_facility(facility)
+
+    if not 1 <= month <= 12:
+        raise HTTPException(
+            status_code=400,
+            detail="月は1から12で指定してください。",
+        )
+
+    entries = db.scalars(
+        select(ChildrenMonthly)
+        .where(
+            ChildrenMonthly.facility == facility,
+            ChildrenMonthly.year == year,
+            ChildrenMonthly.month == month,
+        )
+        .order_by(
+            ChildrenMonthly.age,
+            ChildrenMonthly.certification,
+        )
+    ).all()
+
+    return build_children_summary(
+        facility=facility,
+        year=year,
+        month=month,
+        entries=entries,
+    )
+
+
+@app.post(
+    "/children",
+    response_model=ChildrenMonthlyResponse,
+    status_code=201,
+)
+def create_children(
+    children_data: ChildrenMonthlyCreate,
+    db: Session = Depends(get_db),
+):
+    validate_facility(children_data.facility)
+
+    existing = db.scalar(
+        select(ChildrenMonthly).where(
+            ChildrenMonthly.facility
+            == children_data.facility,
+            ChildrenMonthly.year
+            == children_data.year,
+            ChildrenMonthly.month
+            == children_data.month,
+            ChildrenMonthly.age
+            == children_data.age,
+            ChildrenMonthly.certification
+            == children_data.certification,
+        )
+    )
+
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "同じ園・年月・年齢・認定区分の"
+                "園児数がすでに登録されています。"
+            ),
+        )
+
+    entry = ChildrenMonthly(
+        **children_data.model_dump()
+    )
+
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+
+    return entry
+
+
+@app.put(
+    "/children/{children_id}",
+    response_model=ChildrenMonthlyResponse,
+)
+def update_children(
+    children_id: int,
+    children_data: ChildrenMonthlyUpdate,
+    db: Session = Depends(get_db),
+):
+    entry = db.get(
+        ChildrenMonthly,
+        children_id,
+    )
+
+    if not entry:
+        raise HTTPException(
+            status_code=404,
+            detail="園児数データが見つかりません。",
+        )
+
+    entry.children_count = (
+        children_data.children_count
+    )
+    entry.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(entry)
+
+    return entry
+
+
+@app.delete(
+    "/children/{children_id}",
+    status_code=204,
+)
+def delete_children(
+    children_id: int,
+    db: Session = Depends(get_db),
+):
+    entry = db.get(
+        ChildrenMonthly,
+        children_id,
+    )
+
+    if not entry:
+        raise HTTPException(
+            status_code=404,
+            detail="園児数データが見つかりません。",
+        )
+
+    db.delete(entry)
+    db.commit()
+
+    return None
+
+
+@app.put(
+    "/children/bulk/save",
+    response_model=ChildrenMonthlySummary,
+)
+def save_children_bulk(
+    bulk_data: ChildrenMonthlyBulkSave,
+    db: Session = Depends(get_db),
+):
+    validate_facility(bulk_data.facility)
+
+    expected_keys = {
+        (age, certification)
+        for age in CHILD_AGES
+        for certification in CERTIFICATIONS
+    }
+
+    received_keys = {
+        (
+            entry.age,
+            entry.certification,
+        )
+        for entry in bulk_data.entries
+    }
+
+    if received_keys != expected_keys:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "0歳から5歳までの年齢区分と、"
+                "1号・2号・3号の全項目を送信してください。"
+            ),
+        )
+
+    for entry_data in bulk_data.entries:
+        if (
+            entry_data.facility
+            != bulk_data.facility
+            or entry_data.year
+            != bulk_data.year
+            or entry_data.month
+            != bulk_data.month
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "一括保存データの園・年度・月が"
+                    "一致していません。"
+                ),
+            )
+
+        existing = db.scalar(
+            select(ChildrenMonthly).where(
+                ChildrenMonthly.facility
+                == bulk_data.facility,
+                ChildrenMonthly.year
+                == bulk_data.year,
+                ChildrenMonthly.month
+                == bulk_data.month,
+                ChildrenMonthly.age
+                == entry_data.age,
+                ChildrenMonthly.certification
+                == entry_data.certification,
+            )
+        )
+
+        if existing:
+            existing.children_count = (
+                entry_data.children_count
+            )
+            existing.updated_at = datetime.utcnow()
+        else:
+            db.add(
+                ChildrenMonthly(
+                    **entry_data.model_dump()
+                )
+            )
+
+    db.commit()
+
+    saved_entries = db.scalars(
+        select(ChildrenMonthly)
+        .where(
+            ChildrenMonthly.facility
+            == bulk_data.facility,
+            ChildrenMonthly.year
+            == bulk_data.year,
+            ChildrenMonthly.month
+            == bulk_data.month,
+        )
+        .order_by(
+            ChildrenMonthly.age,
+            ChildrenMonthly.certification,
+        )
+    ).all()
+
+    return build_children_summary(
+        facility=bulk_data.facility,
+        year=bulk_data.year,
+        month=bulk_data.month,
+        entries=saved_entries,
+    )
