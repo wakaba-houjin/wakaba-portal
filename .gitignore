@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Environment
+.env
+.env.*
+
+# Database
+database/
+
+# Uploads
+uploads/*
+!uploads/.gitkeep
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
